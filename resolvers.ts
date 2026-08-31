@@ -7,6 +7,7 @@ import { Card } from "../models/Card";
 import { signToken } from "../auth/jwt";
 import { Context } from "../auth/context";
 import { requireAuth, requireBoardAccess } from "../utils/permissions";
+import { pubsub, boardChannel, publishBoardUpdated } from "./pubsub";
 
 const findUserByLogin = (usernameOrEmail: string) =>
   User.findOne({
@@ -119,7 +120,9 @@ export const resolvers = {
     ) => {
       await requireBoardAccess(ctx, boardId);
       const count = await Column.countDocuments({ board: boardId });
-      return Column.create({ board: boardId, title, order: count });
+      const column = await Column.create({ board: boardId, title, order: count });
+      publishBoardUpdated(boardId);
+      return column;
     },
 
     renameColumn: async (
@@ -132,6 +135,7 @@ export const resolvers = {
       await requireBoardAccess(ctx, String(column.board));
       column.title = title;
       await column.save();
+      publishBoardUpdated(String(column.board));
       return column;
     },
 
@@ -139,8 +143,10 @@ export const resolvers = {
       const column = await Column.findById(id);
       if (!column) throw new GraphQLError("Column not found", { extensions: { code: "NOT_FOUND" } });
       await requireBoardAccess(ctx, String(column.board));
+      const boardId = String(column.board);
       await Card.deleteMany({ column: id });
       await Column.findByIdAndDelete(id);
+      publishBoardUpdated(boardId);
       return true;
     },
 
@@ -153,13 +159,15 @@ export const resolvers = {
       if (!column) throw new GraphQLError("Column not found", { extensions: { code: "NOT_FOUND" } });
       await requireBoardAccess(ctx, String(column.board));
       const count = await Card.countDocuments({ column: columnId });
-      return Card.create({
+      const card = await Card.create({
         board: column.board,
         column: columnId,
         title,
         description: description || "",
         order: count,
       });
+      publishBoardUpdated(String(column.board));
+      return card;
     },
 
     updateCard: async (
@@ -191,6 +199,7 @@ export const resolvers = {
       if (dueDate !== undefined) card.dueDate = dueDate ? new Date(dueDate) : null;
       if (labels !== undefined) card.labels = labels;
       await card.save();
+      publishBoardUpdated(String(card.board));
       return card;
     },
 
@@ -198,7 +207,9 @@ export const resolvers = {
       const card = await Card.findById(id);
       if (!card) throw new GraphQLError("Card not found", { extensions: { code: "NOT_FOUND" } });
       await requireBoardAccess(ctx, String(card.board));
+      const boardId = String(card.board);
       await Card.findByIdAndDelete(id);
+      publishBoardUpdated(boardId);
       return true;
     },
 
@@ -221,14 +232,31 @@ export const resolvers = {
       const reindex = async (columnId: string) => {
         const cards = await Card.find({ column: columnId }).sort({ order: 1 });
         await Promise.all(
-          cards.map((c, i) => Card.updateOne({ _id: c._id }, { $set: { order: i } }))
+          cards.map((c: { _id: unknown }, i: number) =>
+            Card.updateOne({ _id: c._id }, { $set: { order: i } })
+          )
         );
       };
 
       await reindex(toColumnId);
       if (fromColumnId !== toColumnId) await reindex(fromColumnId);
 
+      publishBoardUpdated(String(card.board));
       return Card.findById(id);
+    },
+  },
+
+  Subscription: {
+    boardUpdated: {
+      subscribe: async (
+        _: unknown,
+        { boardId }: { boardId: string },
+        ctx: Context
+      ) => {
+        await requireBoardAccess(ctx, boardId);
+        return pubsub.asyncIterator(boardChannel(boardId));
+      },
+      resolve: (payload: { boardId: string }) => Board.findById(payload.boardId),
     },
   },
 

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { useQuery, useMutation } from "@apollo/client";
+import { useQuery, useMutation, useSubscription } from "@apollo/client";
 import {
   DndContext,
   DragEndEvent,
@@ -23,6 +23,7 @@ import {
   CREATE_CARD,
   DELETE_CARD,
   MOVE_CARD,
+  BOARD_UPDATED,
 } from "../graphql/operations";
 import CardModal, { Member } from "../components/CardModal";
 
@@ -185,6 +186,17 @@ export default function BoardPage() {
       setColumns(structuredClone(data.board.columns));
     }
   }, [data]);
+
+  // Live updates: apply board changes pushed from other clients.
+  useSubscription(BOARD_UPDATED, {
+    variables: { boardId: id },
+    onData: ({ data: sub }) => {
+      const updated = sub.data?.boardUpdated;
+      if (updated?.columns) {
+        setColumns(structuredClone(updated.columns));
+      }
+    },
+  });
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
