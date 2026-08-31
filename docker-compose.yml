@@ -1,0 +1,31 @@
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    depends_on:
+      - mongo
+    environment:
+      PORT: 4000
+      MONGODB_URI: mongodb://mongo:27017/devboard
+      JWT_SECRET: change_this_in_production
+    ports:
+      - "4000:4000"
+
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "5173:80"
+
+volumes:
+  mongo_data:
