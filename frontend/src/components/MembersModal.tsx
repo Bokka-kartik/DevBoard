@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useMutation } from "@apollo/client";
 import { ADD_MEMBER } from "../graphql/operations";
 
-interface Member {
+export interface Member {
   user: { id: string; username: string };
   role: string;
 }
@@ -13,19 +13,22 @@ interface Props {
   onClose: () => void;
 }
 
+const ROLE_BADGE: Record<string, string> = { owner: "👑", member: "👤" };
+
 export default function MembersModal({ boardId, members, onClose }: Props) {
-  const [search, setSearch] = useState("");
-  const [addMember] = useMutation(ADD_MEMBER, {
-    onCompleted: () => {
-      setSearch("");
-    },
+  const [input, setInput] = useState("");
+  const [error, setError] = useState("");
+
+  const [addMember, { loading }] = useMutation(ADD_MEMBER, {
+    onError: (err) => setError(err.message),
+    onCompleted: () => setInput(""),
   });
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleInvite = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!search.trim()) return;
-    await addMember({ variables: { boardId, usernameOrEmail: search.trim() } });
-    onClose();
+    if (!input.trim()) return;
+    setError("");
+    await addMember({ variables: { boardId, usernameOrEmail: input.trim() } });
   };
 
   return (
@@ -36,22 +39,29 @@ export default function MembersModal({ boardId, members, onClose }: Props) {
           <button type="button" className="modal-close" onClick={onClose}>×</button>
         </div>
 
-        <div className="member-list">
-          {members.map((member) => (
-            <div key={member.user.id} className="member-row">
-              <span>{member.user.username}</span>
-              <small>{member.role}</small>
-            </div>
+        <ul className="member-list">
+          {members.map((m) => (
+            <li key={m.user.id} className="member-row">
+              <span className="avatar">{m.user.username[0].toUpperCase()}</span>
+              <span className="member-name">{m.user.username}</span>
+              <span className="member-role">{ROLE_BADGE[m.role] ?? m.role}</span>
+            </li>
           ))}
-        </div>
+        </ul>
 
-        <form onSubmit={handleSubmit} className="add-member-form">
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Add by username or email"
-          />
-          <button type="submit">Add</button>
+        <form className="field" onSubmit={handleInvite}>
+          <span>Invite by username or email</span>
+          <div className="invite-row">
+            <input
+              placeholder="username or email…"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+            />
+            <button type="submit" disabled={loading}>
+              {loading ? "…" : "Invite"}
+            </button>
+          </div>
+          {error && <div className="error">{error}</div>}
         </form>
       </div>
     </div>
