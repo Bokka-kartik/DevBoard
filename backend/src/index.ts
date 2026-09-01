@@ -27,7 +27,7 @@ const start = async () => {
     {
       schema,
       context: async (ctx) => {
-        const auth = (ctx.connectionParams?.authorization as string) || null;
+        const auth = (ctx.connectionParams?.authorization as string) || undefined;
         return { user: await getUserFromToken(auth) };
       },
     },

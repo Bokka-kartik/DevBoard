@@ -151,3 +151,31 @@ export const BOARD_UPDATED = gql`
     }
   }
 `;
+
+export const ACTIVITY_LOG = gql`
+  query ActivityLog($boardId: ID!, $limit: Int) {
+    activityLog(boardId: $boardId, limit: $limit) {
+      id
+      action
+      entityType
+      entityTitle
+      details
+      performedByUsername
+      createdAt
+    }
+  }
+`;
+
+export const ACTIVITY_UPDATED = gql`
+  subscription ActivityUpdated($boardId: ID!) {
+    activityUpdated(boardId: $boardId) {
+      id
+      action
+      entityType
+      entityTitle
+      details
+      performedByUsername
+      createdAt
+    }
+  }
+`;

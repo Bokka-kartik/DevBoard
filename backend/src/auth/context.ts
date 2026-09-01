@@ -11,19 +11,30 @@ export interface Context {
   user: AuthUser | null;
 }
 
-export const buildContext = async ({ req }: { req: any }): Promise<Context> => {
-  const header = req.headers.authorization || "";
+export const getUserFromToken = async (
+  authorizationHeader?: string | string[]
+): Promise<AuthUser | null> => {
+  const header = Array.isArray(authorizationHeader)
+    ? authorizationHeader[0] || ""
+    : authorizationHeader || "";
+
   const token = header.startsWith("Bearer ") ? header.slice(7) : null;
-  if (!token) return { user: null };
+  if (!token) return null;
 
   try {
     const { userId } = verifyToken(token);
     const user = await User.findById(userId).lean();
-    if (!user) return { user: null };
+    if (!user) return null;
     return {
-      user: { id: String(user._id), username: user.username, email: user.email },
+      id: String(user._id),
+      username: user.username,
+      email: user.email,
     };
   } catch {
-    return { user: null };
+    return null;
   }
 };
+
+export const buildContext = async ({ req }: { req: any }): Promise<Context> => ({
+  user: await getUserFromToken(req.headers.authorization),
+});
