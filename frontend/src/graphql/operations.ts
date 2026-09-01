@@ -111,10 +111,65 @@ export const DELETE_CARD = gql`
   }
 `;
 
+export const ADD_MEMBER = gql`
+  mutation AddMember($boardId: ID!, $usernameOrEmail: String!) {
+    addMember(boardId: $boardId, usernameOrEmail: $usernameOrEmail) {
+      id
+      members { role user { id username } }
+    }
+  }
+`;
+
 export const MOVE_CARD = gql`
   mutation MoveCard($id: ID!, $toColumnId: ID!, $toOrder: Int!) {
     moveCard(id: $id, toColumnId: $toColumnId, toOrder: $toOrder) {
       id column order
+    }
+  }
+`;
+
+export const MOVE_COLUMN = gql`
+  mutation MoveColumn($id: ID!, $toOrder: Int!) {
+    moveColumn(id: $id, toOrder: $toOrder) { id order }
+  }
+`;
+
+export const ACTIVITY_LOG = gql`
+  query ActivityLog($boardId: ID!, $limit: Int) {
+    activityLog(boardId: $boardId, limit: $limit) {
+      id action entityType entityTitle details performedByUsername createdAt
+    }
+  }
+`;
+
+export const ACTIVITY_UPDATED = gql`
+  subscription ActivityUpdated($boardId: ID!) {
+    activityUpdated(boardId: $boardId) {
+      id action entityType entityTitle details performedByUsername createdAt
+    }
+  }
+`;
+
+export const BOARD_UPDATED = gql`
+  subscription BoardUpdated($boardId: ID!) {
+    boardUpdated(boardId: $boardId) {
+      id
+      name
+      members { role user { id username } }
+      columns {
+        id
+        title
+        order
+        cards {
+          id
+          title
+          description
+          order
+          labels
+          dueDate
+          assignee { id username }
+        }
+      }
     }
   }
 `;
