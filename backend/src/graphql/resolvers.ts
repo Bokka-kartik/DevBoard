@@ -4,9 +4,33 @@ import { User } from "../models/User";
 import { Board } from "../models/Board";
 import { Column } from "../models/Column";
 import { Card } from "../models/Card";
+import { ActivityLog } from "../models/ActivityLog";
 import { signToken } from "../auth/jwt";
 import { Context } from "../auth/context";
 import { requireAuth, requireBoardAccess } from "../utils/permissions";
+import { pubsub, boardChannel, activityChannel, publishBoardUpdated, publishActivity } from "./pubsub";
+import { validate, RegisterInput, LoginInput, BoardNameInput, ColumnTitleInput, CardCreateInput, CardUpdateInput } from "../validation/schemas";
+
+const logActivity = async (
+  ctx: Context,
+  boardId: string,
+  action: string,
+  entityType: string,
+  entityTitle: string,
+  details = ""
+) => {
+  const entry = await ActivityLog.create({
+    board: boardId,
+    action,
+    entityType,
+    entityTitle,
+    details,
+    performedBy: ctx.user?.id ?? null,
+    performedByUsername: ctx.user?.username ?? "unknown",
+  });
+  publishActivity(boardId, entry);
+  return entry;
+};
 
 const findUserByLogin = (usernameOrEmail: string) =>
   User.findOne({
@@ -31,6 +55,18 @@ export const resolvers = {
       await requireBoardAccess(ctx, id);
       return Board.findById(id);
     },
+
+    activityLog: async (
+      _: unknown,
+      { boardId, limit = 50 }: { boardId: string; limit?: number },
+      ctx: Context
+    ) => {
+      await requireBoardAccess(ctx, boardId);
+      return ActivityLog.find({ board: boardId })
+        .sort({ createdAt: -1 })
+        .limit(limit)
+        .lean();
+    },
   },
 
   Mutation: {
@@ -38,14 +74,15 @@ export const resolvers = {
       _: unknown,
       { username, email, password }: { username: string; email: string; password: string }
     ) => {
-      const exists = await User.findOne({ $or: [{ username }, { email: email.toLowerCase() }] });
+      const input = validate(RegisterInput, { username, email, password });
+      const exists = await User.findOne({ $or: [{ username: input.username }, { email: input.email.toLowerCase() }] });
       if (exists) {
         throw new GraphQLError("Username or email already in use", {
           extensions: { code: "BAD_USER_INPUT" },
         });
       }
-      const passwordHash = await bcrypt.hash(password, 10);
-      const user = await User.create({ username, email, passwordHash });
+      const passwordHash = await bcrypt.hash(input.password, 10);
+      const user = await User.create({ username: input.username, email: input.email, passwordHash });
       return { token: signToken(String(user._id)), user };
     },
 
@@ -53,8 +90,9 @@ export const resolvers = {
       _: unknown,
       { usernameOrEmail, password }: { usernameOrEmail: string; password: string }
     ) => {
-      const user = await findUserByLogin(usernameOrEmail);
-      if (!user || !(await bcrypt.compare(password, user.passwordHash))) {
+      const input = validate(LoginInput, { usernameOrEmail, password });
+      const user = await findUserByLogin(input.usernameOrEmail);
+      if (!user || !(await bcrypt.compare(input.password, user.passwordHash))) {
         throw new GraphQLError("Invalid credentials", {
           extensions: { code: "UNAUTHENTICATED" },
         });
@@ -64,12 +102,12 @@ export const resolvers = {
 
     createBoard: async (_: unknown, { name }: { name: string }, ctx: Context) => {
       const user = requireAuth(ctx);
+      const { name: validName } = validate(BoardNameInput, { name });
       const board = await Board.create({
-        name,
+        name: validName,
         owner: user.id,
         members: [{ user: user.id, role: "owner" }],
       });
-      // Seed default columns.
       const defaults = ["To Do", "In Progress", "Done"];
       await Column.insertMany(
         defaults.map((title, order) => ({ board: board._id, title, order }))
@@ -117,9 +155,13 @@ export const resolvers = {
       { boardId, title }: { boardId: string; title: string },
       ctx: Context
     ) => {
+      const { title: validTitle } = validate(ColumnTitleInput, { title });
       await requireBoardAccess(ctx, boardId);
       const count = await Column.countDocuments({ board: boardId });
-      return Column.create({ board: boardId, title, order: count });
+      const column = await Column.create({ board: boardId, title: validTitle, order: count });
+      publishBoardUpdated(boardId);
+      await logActivity(ctx, boardId, "created", "column", validTitle);
+      return column;
     },
 
     renameColumn: async (
@@ -130,8 +172,11 @@ export const resolvers = {
       const column = await Column.findById(id);
       if (!column) throw new GraphQLError("Column not found", { extensions: { code: "NOT_FOUND" } });
       await requireBoardAccess(ctx, String(column.board));
-      column.title = title;
+      const { title: validTitle } = validate(ColumnTitleInput, { title });
+      column.title = validTitle;
       await column.save();
+      publishBoardUpdated(String(column.board));
+      await logActivity(ctx, String(column.board), "updated", "column", validTitle);
       return column;
     },
 
@@ -139,9 +184,37 @@ export const resolvers = {
       const column = await Column.findById(id);
       if (!column) throw new GraphQLError("Column not found", { extensions: { code: "NOT_FOUND" } });
       await requireBoardAccess(ctx, String(column.board));
+      const boardId = String(column.board);
+      const title = column.title;
       await Card.deleteMany({ column: id });
       await Column.findByIdAndDelete(id);
+      publishBoardUpdated(boardId);
+      await logActivity(ctx, boardId, "deleted", "column", title);
       return true;
+    },
+
+    moveColumn: async (
+      _: unknown,
+      { id, toOrder }: { id: string; toOrder: number },
+      ctx: Context
+    ) => {
+      const column = await Column.findById(id);
+      if (!column) throw new GraphQLError("Column not found", { extensions: { code: "NOT_FOUND" } });
+      await requireBoardAccess(ctx, String(column.board));
+      const boardId = String(column.board);
+
+      column.order = toOrder - 0.5;
+      await column.save();
+
+      const cols = await Column.find({ board: boardId }).sort({ order: 1 });
+      await Promise.all(
+        cols.map((item: any, index: number) =>
+          Column.updateOne({ _id: item._id }, { $set: { order: index } })
+        )
+      );
+
+      publishBoardUpdated(boardId);
+      return Column.findById(id);
     },
 
     createCard: async (
@@ -152,14 +225,18 @@ export const resolvers = {
       const column = await Column.findById(columnId);
       if (!column) throw new GraphQLError("Column not found", { extensions: { code: "NOT_FOUND" } });
       await requireBoardAccess(ctx, String(column.board));
+      const { title: validTitle, description: validDesc } = validate(CardCreateInput, { title, description });
       const count = await Card.countDocuments({ column: columnId });
-      return Card.create({
+      const card = await Card.create({
         board: column.board,
         column: columnId,
-        title,
-        description: description || "",
+        title: validTitle,
+        description: validDesc || "",
         order: count,
       });
+      publishBoardUpdated(String(column.board));
+      await logActivity(ctx, String(column.board), "created", "card", validTitle);
+      return card;
     },
 
     updateCard: async (
@@ -185,12 +262,20 @@ export const resolvers = {
       if (!card) throw new GraphQLError("Card not found", { extensions: { code: "NOT_FOUND" } });
       await requireBoardAccess(ctx, String(card.board));
 
-      if (title !== undefined) card.title = title;
-      if (description !== undefined) card.description = description;
+      const update = validate(CardUpdateInput, { title, description, labels, dueDate }) as {
+        title?: string;
+        description?: string;
+        labels?: string[];
+        dueDate?: string;
+      };
+      if (update.title !== undefined) card.title = update.title;
+      if (update.description !== undefined) card.description = update.description;
       if (assigneeId !== undefined) card.assignee = assigneeId as any;
-      if (dueDate !== undefined) card.dueDate = dueDate ? new Date(dueDate) : null;
-      if (labels !== undefined) card.labels = labels;
+      if (update.dueDate !== undefined) card.dueDate = update.dueDate ? new Date(update.dueDate) : null;
+      if (update.labels !== undefined) card.labels = update.labels;
       await card.save();
+      publishBoardUpdated(String(card.board));
+      await logActivity(ctx, String(card.board), "updated", "card", card.title);
       return card;
     },
 
@@ -198,7 +283,11 @@ export const resolvers = {
       const card = await Card.findById(id);
       if (!card) throw new GraphQLError("Card not found", { extensions: { code: "NOT_FOUND" } });
       await requireBoardAccess(ctx, String(card.board));
+      const boardId = String(card.board);
+      const title = card.title;
       await Card.findByIdAndDelete(id);
+      publishBoardUpdated(boardId);
+      await logActivity(ctx, boardId, "deleted", "card", title);
       return true;
     },
 
@@ -212,26 +301,56 @@ export const resolvers = {
       await requireBoardAccess(ctx, String(card.board));
 
       const fromColumnId = String(card.column);
-
-      // Close the gap in the source column.
-      await Card.updateMany(
-        { column: fromColumnId, order: { $gt: card.order } },
-        { $inc: { order: -1 } }
-      );
-      // Open a gap in the destination column.
-      await Card.updateMany(
-        { column: toColumnId, order: { $gte: toOrder } },
-        { $inc: { order: 1 } }
-      );
-
       card.column = toColumnId as any;
-      card.order = toOrder;
+      card.order = toOrder - 0.5;
       await card.save();
-      return card;
+
+      const reindex = async (columnId: string) => {
+        const cards = await Card.find({ column: columnId }).sort({ order: 1 });
+        await Promise.all(
+          cards.map((item: any, index: number) =>
+            Card.updateOne({ _id: item._id }, { $set: { order: index } })
+          )
+        );
+      };
+
+      await reindex(toColumnId);
+      if (fromColumnId !== toColumnId) await reindex(fromColumnId);
+
+      publishBoardUpdated(String(card.board));
+      const toColumn = await Column.findById(toColumnId);
+      const moved = await Card.findById(id);
+      await logActivity(ctx, String(card.board), "moved", "card", moved!.title as string,
+        toColumn ? `→ ${toColumn.title}` : "");
+      return moved;
     },
   },
 
-  // ----- Field resolvers -----
+  Subscription: {
+    boardUpdated: {
+      subscribe: async (
+        _: unknown,
+        { boardId }: { boardId: string },
+        ctx: Context
+      ) => {
+        await requireBoardAccess(ctx, boardId);
+        return (pubsub as any).asyncIterator(boardChannel(boardId));
+      },
+      resolve: (payload: { boardId: string }) => Board.findById(payload.boardId),
+    },
+    activityUpdated: {
+      subscribe: async (
+        _: unknown,
+        { boardId }: { boardId: string },
+        ctx: Context
+      ) => {
+        await requireBoardAccess(ctx, boardId);
+        return (pubsub as any).asyncIterator(activityChannel(boardId));
+      },
+      resolve: (payload: { activityEntry: any }) => payload.activityEntry,
+    },
+  },
+
   Board: {
     id: (b: any) => b._id ?? b.id,
     owner: (b: any) => User.findById(b.owner),
@@ -257,5 +376,10 @@ export const resolvers = {
 
   User: {
     id: (u: any) => u._id ?? u.id,
+  },
+
+  ActivityEntry: {
+    id: (a: any) => a._id ?? a.id,
+    createdAt: (a: any) => new Date(a.createdAt).toISOString(),
   },
 };

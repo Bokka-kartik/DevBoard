@@ -44,10 +44,21 @@ export const typeDefs = `#graphql
     user: User!
   }
 
+  type ActivityEntry {
+    id: ID!
+    action: String!
+    entityType: String!
+    entityTitle: String!
+    details: String
+    performedByUsername: String
+    createdAt: String!
+  }
+
   type Query {
     me: User
     myBoards: [Board!]!
     board(id: ID!): Board
+    activityLog(boardId: ID!, limit: Int): [ActivityEntry!]!
   }
 
   type Mutation {
@@ -62,10 +73,16 @@ export const typeDefs = `#graphql
     createColumn(boardId: ID!, title: String!): Column!
     renameColumn(id: ID!, title: String!): Column!
     deleteColumn(id: ID!): Boolean!
+    moveColumn(id: ID!, toOrder: Int!): Column!
 
     createCard(columnId: ID!, title: String!, description: String): Card!
     updateCard(id: ID!, title: String, description: String, assigneeId: ID, dueDate: String, labels: [String!]): Card!
     deleteCard(id: ID!): Boolean!
     moveCard(id: ID!, toColumnId: ID!, toOrder: Int!): Card!
+  }
+
+  type Subscription {
+    boardUpdated(boardId: ID!): Board!
+    activityUpdated(boardId: ID!): ActivityEntry!
   }
 `;
