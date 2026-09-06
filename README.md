@@ -89,7 +89,7 @@ DevBoard/
 
 ## Deploy a live demo
 
-Free-tier stack: **MongoDB Atlas** (database) + **Render** (API) + **Vercel** (frontend).
+Use **MongoDB Atlas** for the database, **Render** for the Docker-compatible API service, and **Vercel** for the Vite frontend. Vercel does not provide a shared Docker Compose network, so the frontend connects to the public Render API URL over HTTPS/WSS. Docker Compose remains the local option for connecting `frontend`, `backend`, and `mongo` on one private network.
 
 1. **Database — MongoDB Atlas**
    - Create a free M0 cluster, add a database user, and allow network access.
@@ -98,12 +98,15 @@ Free-tier stack: **MongoDB Atlas** (database) + **Render** (API) + **Vercel** (f
 2. **API — Render** (uses [`render.yaml`](render.yaml))
    - New → Blueprint → select this repo.
    - Set `MONGODB_URI` to your Atlas string; `JWT_SECRET` is auto-generated.
-   - Note the deployed URL, e.g. `https://devboard-api.onrender.com`.
+   - Note the deployed GraphQL URL, e.g. `https://devboard-api.onrender.com/graphql`.
 
 3. **Frontend — Vercel** (uses [`frontend/vercel.json`](frontend/vercel.json))
    - Import the repo and set the **root directory** to `frontend`.
-   - Add env var `VITE_API_URL` = your Render API URL.
+   - Add `VITE_API_URL` = `https://devboard-api.onrender.com/graphql`.
+   - Add `VITE_WS_URL` = `wss://devboard-api.onrender.com/graphql` for live subscriptions.
    - Deploy — Vercel auto-detects Vite.
+
+Set the Vercel environment variables for **Production**, and redeploy after changing them. Do not use Docker service names such as `backend` or `mongo` in Vercel; those names only resolve inside the local Compose network.
 
 ## Roadmap
 
