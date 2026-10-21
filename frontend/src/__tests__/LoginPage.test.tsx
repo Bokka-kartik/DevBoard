@@ -3,10 +3,10 @@ import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
 import { MockedProvider } from "@apollo/client/testing";
-import LoginPage from "../../pages/LoginPage";
-import { AuthProvider } from "../../auth/AuthContext";
-import { LOGIN } from "../../graphql/operations";
-import { mockUser, mockToken } from "../fixtures/data";
+import LoginPage from "../pages/LoginPage";
+import { AuthProvider } from "../auth/AuthContext";
+import { LOGIN } from "../graphql/operations";
+import { mockUser, mockToken } from "./fixtures/data";
 
 const renderLogin = (mocks = []) =>
   render(

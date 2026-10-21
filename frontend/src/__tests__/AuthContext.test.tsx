@@ -1,8 +1,8 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, beforeEach } from "vitest";
-import { AuthProvider, useAuth } from "../../auth/AuthContext";
-import { mockUser, mockToken } from "../fixtures/data";
+import { AuthProvider, useAuth } from "../auth/AuthContext";
+import { mockUser, mockToken } from "./fixtures/data";
 
 // Helper component to read context values in tests.
 const ReadContext = () => {

@@ -21,8 +21,8 @@ export const columns = {
 
 export const cards = {
   task1:   { title: "Design the schema", description: "Draft ERD and GraphQL types" },
-  task2:   { title: "Build resolvers" },
-  invalid: { title: "" },
+  task2:   { title: "Build resolvers", description: "" },
+  invalid: { title: "", description: "" },
   longDesc: {
     title: "Valid card",
     description: "x".repeat(2001), // exceeds 2000 char limit
