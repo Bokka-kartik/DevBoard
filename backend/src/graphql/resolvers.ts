@@ -274,7 +274,7 @@ export const resolvers = {
     owner: (b: any) => User.findById(b.owner),
     members: (b: any) =>
       b.members.map((m: any) => ({ user: () => User.findById(m.user), role: m.role })),
-    columns: (b: any) => Column.find({ board: b._id }).sort({ order: 1 }),
+    columns: (b: any) => Column.find({ board: b._id }).sort({ order: 1 }).exec(),
   },
 
   Member: {
@@ -283,7 +283,7 @@ export const resolvers = {
 
   Column: {
     id: (c: any) => c._id ?? c.id,
-    cards: (c: any) => Card.find({ column: c._id }).sort({ order: 1 }),
+    cards: (c: any) => Card.find({ column: c._id }).sort({ order: 1 }).exec(),
   },
 
   Card: {

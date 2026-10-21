@@ -1,11 +1,11 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi } from "vitest";
-import CardModal from "../../components/CardModal";
-import type { CardData, Member } from "../../components/CardModal";
+import CardModal from "../components/CardModal";
+import type { CardData, Member } from "../components/CardModal";
 import { MockedProvider } from "@apollo/client/testing";
-import { UPDATE_CARD } from "../../graphql/operations";
-import { mockUser } from "../fixtures/data";
+import { UPDATE_CARD } from "../graphql/operations";
+import { mockUser } from "./fixtures/data";
 
 const mockCard: CardData = {
   id: "card-1",
